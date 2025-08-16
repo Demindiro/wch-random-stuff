@@ -1,5 +1,12 @@
 .equ SRAM, 0x20000000
 
+.equ PWR, 0x40007000
+.equ PWR.ctlr  , 0x00
+.equ PWR.csr   , 0x04
+.equ PWR.awucsr, 0x08
+.equ PWR.awuwr , 0x0c
+.equ PWR.awupsc, 0x10
+
 .equ TIM2, 0x40000000
 .equ TIM2.ctlr1    , 0x00
 .equ TIM2.ctlr2    , 0x04
@@ -150,7 +157,16 @@ _r32_gpio_bank A C D
 .equ PFIC.iactr1  , 0x300
 .equ PFIC.iactr2  , 0x304
 .equ PFIC.ipriorx , 0x400
-.equ PFIC.sctlr   , 0xd10
+# PFIC_SCTLR is oddly placed for whatever reason
+#.equ PFIC.sctlr   , 0xd10
+.equ PFIC_TAIL, PFIC + 0x1000
+.equ PFIC_TAIL.sctlr, 0x1000 - 0xd10
+.equ PFIC_TAIL.SCTLR.SLEEPONEXIT, 1 <<  1
+.equ PFIC_TAIL.SCTLR.SLEEPDEEP  , 1 <<  2
+.equ PFIC_TAIL.SCTLR.WFITOWFE   , 1 <<  3
+.equ PFIC_TAIL.SCTLR.SEVONPEND  , 1 <<  4
+.equ PFIC_TAIL.SCTLR.SETEVENT   , 1 <<  5
+.equ PFIC_TAIL.SCTLR.SYSRESET   , 1 << 31
 
 .equ STK, 0xe000f000
 .equ STK.ctlr , 0x00

@@ -14,6 +14,15 @@ colors.end:
 
 .if SET_48MHZ
  .if 1
+  # The tolerances on the datasheet appear to be really tight,
+  # even tighter than actual limits?
+  # bumping up period fixed red channel bits bleeding into blue
+  #.equ PERIOD, 40 # MIN: 1.2µs -> 24e6*s^-1 * 1.2e-6*s = 28.8
+  #.equ PERIOD, 1000 # MIN: 1.2µs -> 24e6*s^-1 * 1.2e-6*s = 28.8
+  .equ PERIOD, 500 # MIN: 1.2µs -> 24e6*s^-1 * 1.2e-6*s = 28.8
+  .equ LO_T,  7   # MIN: 0.2µs, TYP: 0.3µs, MAX: 0.4µs -> 24e6*s^-1 * {0.2,0.3,0.4}e-6*s = {4.8,7.2,9.6}
+  .equ HI_T, 21   # MIN: 0.65µs, TYP: 0.9µs, MAX: 1µs  -> 24e6*s^-1 * {0.65,0.9,1}e-6*s = {15.6,21.6,24}
+ .elseif 1
   .equ PERIOD, 29 # MIN: 1.2µs -> 24e6*s^-1 * 1.2e-6*s = 28.8
   .equ LO_T,  7   # MIN: 0.2µs, TYP: 0.3µs, MAX: 0.4µs -> 24e6*s^-1 * {0.2,0.3,0.4}e-6*s = {4.8,7.2,9.6}
   .equ HI_T, 21   # MIN: 0.65µs, TYP: 0.9µs, MAX: 1µs  -> 24e6*s^-1 * {0.65,0.9,1}e-6*s = {15.6,21.6,24}
@@ -48,12 +57,8 @@ colors.end:
 #.equ RESET_TICKS, 200 # 200µs -> 200µs / 1.2µs = 166.6, but just take 200 to keep it simple
 #.equ RESET_TICKS, 809
 # I evidently can't do math...
-.equ RESET_TICKS, 809 * 10
-
-# ATRLR is *inclusive*, so we need to set the value -1
-#.equ PERIOD_ATRLR, PERIOD - 1
-.equ PERIOD_ATRLR, PERIOD
-# signal change happens *on* 
+#.equ RESET_TICKS, 809 * 10
+.equ RESET_TICKS, 24 * 1000 * 3 / PERIOD - 24
 
 .section .init
 .option push
@@ -102,13 +107,25 @@ intr_vector:
 
 
 _start:
+	# disable interrupts
+	csrw mstatus, zero
+
+	li t0, RCC
+	lw t1, RCC.rstsckr(t0)
+	li t2, 1 << 24
+	sw t2, RCC.rstsckr(t0)
+	li t0, SRAM
+	sw t1, 4(t0)
+
+	li t0, SRAM
+	lw t1, 8(t0)
+	addi t1, t1, 1
+	sw t1, 8(t0)
+
 	# this doesn't work, but initial pc is 0 anyway, so...
 	#li t1, intr_vector | mtvec.VECTORED
 	li t1, mtvec.VECTORED
 	csrw mtvec, t1
-
-	li t1, mstatus.MIE
-	csrw mstatus, t1
 
 	# enable peripherals
 	li t0, RCC
@@ -124,29 +141,14 @@ _start:
 	li t1, RCC.APB1PCENR.TIM2EN
 	sw t1, RCC.apb1pcenr(t0)
 
-	# set PD4 state low default
-	li t1, 1 << (16 + 4)
-	#li t1, 1 << 4
-	sw t1, GPIO.D.bshr(t0)
-
 	# set PD4 to multiplexed push-pull output mode
 	li t0, GPIO
 	lw t1, GPIO.D.cfglr(t0)
 	li t2, ~(0xf << (4 * 4))
 	and t1, t1, t2
-	li t2, (GPIO.CFGLR.MODE_OUTPUT_30M | GPIO.CFGLR.CNF_OUTPUT_MULTIPLEX) << (4 * 4)
+	li t2, (GPIO.CFGLR.MODE_OUTPUT_2M | GPIO.CFGLR.CNF_OUTPUT_MULTIPLEX) << (4 * 4)
 	or t1, t1, t2
 	sw t1, GPIO.D.cfglr(t0)
-
-	# set PD4 state low default
-	li t1, 1 << (16 + 4)
-	#li t1, 1 << 4
-	sw t1, GPIO.D.bshr(t0)
-
-	#li t0, 1000 * 1000 / 3
-	li t0, 20000 * 48 / 2
-2:	addi t0, t0, -1
-	bnez t0, 2b
 
 	# configure GPTM
 	# CH1 is used for driving PD4
@@ -154,7 +156,7 @@ _start:
 	#li t1, (TIM2.DMAINTENR.TIE | TIM2.DMAINTENR.UIE)
 	li t1, TIM2.DMAINTENR.UIE
 	sh t1, TIM2.dmaintenr(t0)
-	li t1, PERIOD_ATRLR
+	li t1, PERIOD
 	sh t1, TIM2.atrlr(t0)
 	#sw zero, TIM2.ch1cvr(t0)
 	#li t1, -1
@@ -169,6 +171,9 @@ _start:
 	li t1, TIM2.CTLR1.ARPE | TIM2.CTLR1.DIR | TIM2.CTLR1.URS | TIM2.CTLR1.CEN
 	li t1, TIM2.CTLR1.ARPE | TIM2.CTLR1.URS | TIM2.CTLR1.CEN
 	sh t1, TIM2.ctlr1(t0)
+	# make sure the interrupt bit is cleared
+	li t1, ~TIM2.INTFR.UIF
+	sw t1, TIM2.intfr(t0)
 
 	li a5, 24
 
@@ -176,20 +181,39 @@ _start:
 	la a4, colors.end
 
 	# configure interrupts
+	li t0, PFIC_TAIL
+	li t1, PFIC_TAIL.SCTLR.SLEEPONEXIT
+	sw t1, PFIC_TAIL.sctlr(t0)
 	li t0, PFIC
 	#li t1, 1 << 12
 	#sw t1, PFIC.ienr1(t0)
 	li t1, 1 << (38 - 32)
 	sw t1, PFIC.ienr2(t0)
 
+.if 1
+	li s0, SRAM
+	sw zero, (s0)
+.endif
+
 	li t1, 0
 	li t2, 1
+
+	# enable interrupts and wait for all eternity
+	li t1, mstatus.MIE
+	csrw mstatus, t1
 
 2:	#wfi
 	j 2b
 
 
 tim2upd:
+.if 1
+	li s0, SRAM
+	lw s1, (s0)
+	addi s1, s1, 1
+	sw s1, (s0)
+.endif
+
 	li t1, ~TIM2.INTFR.UIF
 	sw t1, TIM2.intfr(t0)
 	addi a5, a5, 1
@@ -203,8 +227,8 @@ tim2upd:
 	la a3, colors
 .Ltim2upd_bit:
 .if 0
-	#li t0, SRAM
-	#lw t0, (t0)
+	li t0, SRAM
+	lw t0, (t0)
 .else
 	lw t0, (a3)
 .endif
@@ -218,7 +242,6 @@ tim2upd:
 	li t1, LO_T
 	j .Ltim2upd_bit_set
 .Ltim2upd_reset:
-	#li t1, -1
 	li t1, 0
 .Ltim2upd_bit_set:
 	li t0, TIM2

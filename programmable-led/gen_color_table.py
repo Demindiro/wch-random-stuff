@@ -10,9 +10,6 @@ STEPS = int(1e6 / (1.2 * (24 + 200)))
 # that we need only 1000 entries
 STEPS = int(1e6 / (1.2 * (24 + 809)))
 
-TAU_2 = TAU / 2
-TAU_2 = TAU / 2
-TAU_3 = TAU / 3
 TAU_6 = TAU / 6
 
 def hsv_to_rgb(h, s, v):
@@ -44,13 +41,33 @@ def encode(r, g, b):
     # and shift between 0-23
     #
     # for MSb order, reverse bits (again: convenience)
+    #
+    # To even out light consistency, normalize
+    #
+    # To not get blinded, apply dim factor
+    dim = lambda x: x / (r + g + b) * 0.5
+    #dim = lambda x: x
     rev8 = lambda x: int('{:08b}'.format(x)[::-1], 2)
     clamp = lambda x: min(max(0, x), 255)
-    f = lambda x: rev8(clamp(int(x * 255)))
+    f = lambda x: rev8(clamp(int(dim(x) * 255)))
     return f(g) | (f(r) << 8) | (f(b) << 16)
 
 # color wheel: just go from 0 to TAU for H component
 def colorwheel(steps):
+    if 0:
+        for i in range(256):
+            yield i/256, 0, 0
+        for i in range(256 - 1, -1, -1):
+            yield i/256, 0, 0
+        return
+
+    if 0:
+        for i in range(steps // 3):
+            yield hsv_to_rgb(i * TAU / steps + TAU_6*2, 1, 1)
+        for i in range(steps // 3 - 1, -1, -1):
+            yield hsv_to_rgb(i * TAU / steps + TAU_6*2, 1, 1)
+        return 
+
     for i in range(steps):
         yield hsv_to_rgb(i * TAU / steps, 1, 1)
 

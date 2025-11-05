@@ -58,7 +58,13 @@ colors.end:
 #.equ RESET_TICKS, 809
 # I evidently can't do math...
 #.equ RESET_TICKS, 809 * 10
-.equ RESET_TICKS, 24 * 1000 * 3 / PERIOD - 24
+#.equ RESET_TICKS, 24 * 1000 * 3 / PERIOD - 24
+
+#.equ RESET_TICKS, 24 * 100000 * 3 / PERIOD - 24
+.equ RESET_TICKS, 24 * 2000 * 3 / PERIOD - 24
+
+.equ LED_COUNT, 3
+.equ LED_COUNTERS, SRAM
 
 .section .init
 .option push
@@ -127,6 +133,16 @@ _start:
 	li t1, mtvec.VECTORED
 	csrw mtvec, t1
 
+	# initialize SRAM
+	li t0, LED_COUNTERS
+	la t1, colors
+	#li t2, (COLOR_ENTRIES / LED_COUNT) * 4
+	sw t1, 8(t0)
+	addi t1, t1, 200
+	sw t1, 4(t0)
+	addi t1, t1, 200
+	sw t1, 0(t0)
+
 	# enable peripherals
 	li t0, RCC
 .if SET_48MHZ
@@ -175,7 +191,9 @@ _start:
 	li t1, ~TIM2.INTFR.UIF
 	sw t1, TIM2.intfr(t0)
 
-	li a5, 24
+	# start with reset (0), then each led (1, 2, ...)
+	li a2, 0
+	li a5, RESET_TICKS
 
 	la a3, colors
 	la a4, colors.end
@@ -190,11 +208,6 @@ _start:
 	li t1, 1 << (38 - 32)
 	sw t1, PFIC.ienr2(t0)
 
-.if 1
-	li s0, SRAM
-	sw zero, (s0)
-.endif
-
 	li t1, 0
 	li t2, 1
 
@@ -207,32 +220,17 @@ _start:
 
 
 tim2upd:
-.if 1
-	li s0, SRAM
-	lw s1, (s0)
-	addi s1, s1, 1
-	sw s1, (s0)
-.endif
-
+	li t0, TIM2
 	li t1, ~TIM2.INTFR.UIF
 	sw t1, TIM2.intfr(t0)
-	addi a5, a5, 1
-	li t0, 24
-	blt a5, t0, .Ltim2upd_bit
-	li t0, 24 + RESET_TICKS
-	blt a5, t0, .Ltim2upd_reset
-	li a5, 0
-	addi a3, a3, 4
-	bne a3, a4, .Ltim2upd_bit
-	la a3, colors
-.Ltim2upd_bit:
-.if 0
-	li t0, SRAM
-	lw t0, (t0)
-.else
-	lw t0, (a3)
-.endif
-	srl t0, t0, a5
+	# predecrement counter
+	addi a5, a5, -1
+	bltz a5, .Ltim2upd_next.led
+	# check if we're in reset or LED stage
+	beqz a2, .Ltim2upd_reset
+
+.Ltim2upd_led:
+	srl t0, a3, a5
 	andi t0, t0, 1
 	beqz t0, .Ltim2upd_bit_lo
 .Ltim2upd_bit_hi:
@@ -240,10 +238,37 @@ tim2upd:
 	j .Ltim2upd_bit_set
 .Ltim2upd_bit_lo:
 	li t1, LO_T
-	j .Ltim2upd_bit_set
-.Ltim2upd_reset:
-	li t1, 0
 .Ltim2upd_bit_set:
 	li t0, TIM2
+	sw t1, TIM2.ch1cvr(t0)
+	mret
+
+
+.Ltim2upd_next.led:
+	li t0, LED_COUNT
+	beq a2, t0, .Ltim2upd_next.reset
+
+	slli t1, a2, 2 # *4
+	li t0, LED_COUNTERS
+	add t0, t0, t1
+	lw t1, (t0)
+	addi t1, t1, 4
+	bne t1, a4, .Ltim2upd_next.led.nowrap
+	la t1, colors
+.Ltim2upd_next.led.nowrap:
+	sw t1, (t0)
+	lw a3, (t1)
+
+	addi a2, a2, 1
+	li a5, 24 - 1
+	j .Ltim2upd_led
+
+
+.Ltim2upd_next.reset:
+	li a2, 0
+	li a5, RESET_TICKS - 1
+.Ltim2upd_reset:
+	li t0, TIM2
+	li t1, 0
 	sw t1, TIM2.ch1cvr(t0)
 	mret

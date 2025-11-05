@@ -2,7 +2,8 @@ ENTRY(_start)
 
 MEMORY
 {
-	FLASH (rx) : ORIGIN = 0x08000000, LENGTH = 16K
+	/* FLASH (rx) : ORIGIN = 0x08000000, LENGTH = 16K */
+	FLASH (rx) : ORIGIN = 0x00000000, LENGTH = 16K
 	RAM (xrw)  : ORIGIN = 0x20000000, LENGTH = 2K
 }
 
@@ -19,6 +20,12 @@ SECTIONS
     {
       . = ALIGN(4);
       *(.text .text.*)
+      . = ALIGN(4);
+    } >FLASH AT>FLASH 
+
+    .rodata :
+    {
+      . = ALIGN(4);
       *(.rodata .rodata.*)
       . = ALIGN(4);
     } >FLASH AT>FLASH 

@@ -45,11 +45,15 @@ def encode(r, g, b):
     # To even out light consistency, normalize
     #
     # To not get blinded, apply dim factor
+
     dim = lambda x: x / (r + g + b) * 0.5
-    #dim = lambda x: x
-    rev8 = lambda x: int('{:08b}'.format(x)[::-1], 2)
     clamp = lambda x: min(max(0, x), 255)
-    f = lambda x: rev8(clamp(int(dim(x) * 255)))
+
+    if 1:
+        f = lambda x: clamp(int(dim(x) * 255))
+    else:
+        rev8 = lambda x: int('{:08b}'.format(x)[::-1], 2)
+        f = lambda x: rev8(clamp(int(dim(x) * 255)))
     return f(g) | (f(r) << 8) | (f(b) << 16)
 
 # color wheel: just go from 0 to TAU for H component
